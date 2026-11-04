@@ -1,5 +1,5 @@
 // Rende l'app installabile e utilizzabile anche senza connessione.
-const CACHE = "canti-v5";
+const CACHE = "canti-v6";
 const BASE = ["./", "index.html", "app.js", "tastiera.js", "pdf.js", "jspdf.umd.min.js", "stile.css", "manifest.webmanifest",
   "icone/icona-192.png", "icone/icona-512.png", "icone/copertina.jpg"];
 

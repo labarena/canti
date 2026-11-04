@@ -1526,6 +1526,47 @@ async function configuraModifiche() {
 }
 
 /**
+ * Cambia la password per le modifiche: il token resta lo stesso, viene solo cifrato di nuovo
+ * con la password nuova e riscritto in dati/editor.bin. Serve aver già sbloccato con la vecchia.
+ */
+async function cambiaPassword() {
+  if (!(await sbloccaModifiche())) return;
+  let errore = "";
+  for (;;) {
+    const v = await finestra({
+      titolo: "Cambia password",
+      testo: "La nuova password servirà per modificare i canti su tutti i dispositivi. " +
+        "Per leggerli non cambia nulla: basta sempre il link con la chiave.",
+      campi: [
+        { nome: "password", tipo: "password", etichetta: "Nuova password" },
+        { nome: "conferma", tipo: "password", etichetta: "Ripeti la nuova password" },
+      ],
+      ok: "Cambia", errore,
+    });
+    if (!v) return;
+    if (!v.password) { errore = "Scrivi la nuova password."; continue; }
+    if (v.password !== v.conferma) { errore = "Le due password non coincidono."; continue; }
+    try {
+      const sale = crypto.getRandomValues(new Uint8Array(16));
+      const k = await chiaveDa(v.password.toLowerCase(), sale, ITER_EDITOR, ["encrypt"]);
+      const cifrato = await cifra(k, codifica(sito.token), "editor");
+      const dati = new Uint8Array(16 + cifrato.length);
+      dati.set(sale);
+      dati.set(cifrato, 16);
+      const { sha } = await github("contents/dati/editor.bin");
+      await github("contents/dati/editor.bin", {
+        method: "PUT",
+        body: JSON.stringify({ message: "Cambia la password delle modifiche", content: aBase64(dati), sha }),
+      });
+      avviso("Password cambiata ✓ Sugli altri dispositivi vale tra un paio di minuti.");
+      return;
+    } catch (e) {
+      errore = `Non sono riuscito a salvarla (${e.message}). Riprova.`;
+    }
+  }
+}
+
+/**
  * Salva un canto (testo null = elimina). Parte sempre dall'ultima versione presente su GitHub,
  * così non si perdono modifiche fatte nel frattempo da un altro dispositivo.
  */
@@ -2240,6 +2281,7 @@ $("pm-annulla").onclick = () => {
   mostraCanto(originale || null);
 };
 $("pm-elimina").onclick = eliminaCanto;
+$("pm-password").onclick = cambiaPassword;
 $("pm-ton-giu").onclick = () => trasponiEditor(-1);
 $("pm-ton-su").onclick = () => trasponiEditor(1);
 // "Com'era": la tonalità che il canto aveva quando si è aperta la modifica
