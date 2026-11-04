@@ -27,8 +27,9 @@ const EXTRA_WINANSI = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜
 const pulisci = s => [...(s || "").replace(/♩/g, "").replace(/\s+$/, "")]
   .map(c => c.charCodeAt(0) <= 255 || EXTRA_WINANSI.includes(c) ? c : "").join("");
 
-/** Prepara le righe di un canto (misurate ma non ancora disegnate): ciascuna { h, disegna(doc, y), unita } */
-function righeCanto(doc, canto) {
+/** Prepara le righe di un canto (misurate ma non ancora disegnate): ciascuna { h, disegna(doc, y), unita }.
+    k rimpicciolisce tutto (caratteri, righe, spazi): serve perché un canto lungo stia in una pagina. */
+function righeCanto(doc, canto, k = 1) {
   const n = trasposizioneDi(canto);
   const bemolli = usaBemolli(leggiTonalita(canto.meta.key), n);
   const acc = a => pulisci(trasponiAccordo(a, n, bemolli, stato.int));
@@ -40,23 +41,23 @@ function righeCanto(doc, canto) {
 
   // intestazione: titolo, autore, tonalità e tempo, melodia
   const m = canto.meta;
-  font("bold", 14);
-  for (const r of doc.splitTextToSize(pulisci(m.title), PDF.larghezza)) metti(17, (d, y) => { font("bold", 14); d.text(r, PDF.sx, y + 13); }, true);
+  font("bold", 14 * k);
+  for (const r of doc.splitTextToSize(pulisci(m.title), PDF.larghezza)) metti(17 * k, (d, y) => { font("bold", 14 * k); d.text(r, PDF.sx, y + 13 * k); }, true);
   const dettagli = [m.subtitle, m.artist].filter(Boolean).join(" · ");
-  if (dettagli) metti(11, (d, y) => { font("italic", 8.5, PDF.grigio); d.text(pulisci(dettagli), PDF.sx, y + 8.5); }, true);
+  if (dettagli) metti(11 * k, (d, y) => { font("italic", 8.5 * k, PDF.grigio); d.text(pulisci(dettagli), PDF.sx, y + 8.5 * k); }, true);
   const { bpm, metro } = tempoMetronomo(canto);
   const info = [m.key && "Tonalità " + nomeTonalita(canto, n), metro, bpm && "ritmo " + bpm].filter(Boolean).join(" · ");
-  if (info) metti(11, (d, y) => { font("normal", 7.5, PDF.grigio, "helvetica"); d.text(pulisci(info), PDF.sx, y + 8); }, true);
+  if (info) metti(11 * k, (d, y) => { font("normal", 7.5 * k, PDF.grigio, "helvetica"); d.text(pulisci(info), PDF.sx, y + 8 * k); }, true);
   for (const b of canto.blocchi) {
     if (b.tipo !== "melodia" || /start_of_abc/i.test(b.sorgente)) continue;
     const note = [...b.sorgente.matchAll(/^\s*note\s*:(.*)$/gim)].map(x => x[1].trim()).filter(Boolean).join("  ");
     if (note) {
-      font("italic", 8);
+      font("italic", 8 * k);
       for (const r of doc.splitTextToSize(pulisci("Melodia: " + note), PDF.larghezza))
-        metti(10, (d, y) => { font("italic", 8, PDF.grigio); d.text(r, PDF.sx, y + 8); }, true);
+        metti(10 * k, (d, y) => { font("italic", 8 * k, PDF.grigio); d.text(r, PDF.sx, y + 8 * k); }, true);
     }
   }
-  metti(4, () => {}, true);
+  metti(4 * k, () => {}, true);
 
   // una riga ChordPro -> righe visive con gli accordi sopra le sillabe (si va a capo se non ci sta)
   const rigaConAccordi = (riga, rientro, stile) => {
@@ -86,13 +87,13 @@ function righeCanto(doc, canto) {
     if (corrente.length) parole.push(corrente);
     // misure
     const misura = (testo, accordo) => {
-      doc.setFont("times", stile); doc.setFontSize(11);
+      doc.setFont("times", stile); doc.setFontSize(11 * k);
       const tw = doc.getTextWidth(pulisci(testo));
-      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
-      const cw = accordo ? doc.getTextWidth(acc(accordo)) + 3 : 0;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5 * k);
+      const cw = accordo ? doc.getTextWidth(acc(accordo)) + 3 * k : 0;
       return { tw, cw, w: Math.max(tw, cw) };
     };
-    doc.setFont("times", stile); doc.setFontSize(11);
+    doc.setFont("times", stile); doc.setFontSize(11 * k);
     const spazio = doc.getTextWidth(" ");
     const visive = [[]];
     let xCur = 0;
@@ -100,7 +101,7 @@ function righeCanto(doc, canto) {
     for (const parola of parole) {
       const pezzi = parola.map(([a, t]) => ({ a, t, ...misura(t, a) }));
       const w = pezzi.reduce((s, p) => s + p.w, 0);
-      if (xCur > 0 && xCur + w > max) { visive.push([]); xCur = 12; }  // a capo, un po' rientrato
+      if (xCur > 0 && xCur + w > max) { visive.push([]); xCur = 12 * k; }  // a capo, un po' rientrato
       let xp = xCur;
       for (const [i, p] of pezzi.entries()) {
         visive[visive.length - 1].push({ ...p, x: xp, trattino: i < pezzi.length - 1 && p.cw > p.tw && p.t.trim() });
@@ -111,15 +112,15 @@ function righeCanto(doc, canto) {
     for (const pezzi of visive) {
       const conAccordi = pezzi.some(p => p.a);
       const conTesto = pezzi.some(p => p.t.trim());
-      const h = (conAccordi ? PDF.rigaAccordi : 0) + (conTesto ? PDF.rigaTesto : 3);
+      const h = (conAccordi ? PDF.rigaAccordi * k : 0) + (conTesto ? PDF.rigaTesto * k : 3 * k);
       metti(h, (d, y) => {
-        const yAcc = y + 8, yTesto = y + (conAccordi ? PDF.rigaAccordi : 0) + 10;
+        const yAcc = y + 8 * k, yTesto = y + (conAccordi ? PDF.rigaAccordi * k : 0) + 10 * k;
         for (const p of pezzi) {
           const x0 = PDF.sx + rientro + p.x;
-          if (p.a) { d.setFont("helvetica", "bold"); d.setFontSize(8.5); d.setTextColor(...PDF.rosso); d.text(acc(p.a), x0, yAcc); }
-          if (p.t) { d.setFont("times", stile); d.setFontSize(11); d.setTextColor(0, 0, 0); d.text(pulisci(p.t), x0, yTesto); }
+          if (p.a) { d.setFont("helvetica", "bold"); d.setFontSize(8.5 * k); d.setTextColor(...PDF.rosso); d.text(acc(p.a), x0, yAcc); }
+          if (p.t) { d.setFont("times", stile); d.setFontSize(11 * k); d.setTextColor(0, 0, 0); d.text(pulisci(p.t), x0, yTesto); }
           if (p.trattino) {  // l'accordo allarga la parola: un trattino ricuce le sillabe
-            d.setTextColor(...PDF.grigio); d.text("-", x0 + p.tw + (p.w - p.tw) / 2 - 1.5, yTesto);
+            d.setTextColor(...PDF.grigio); d.text("-", x0 + p.tw + (p.w - p.tw) / 2 - 1.5 * k, yTesto);
           }
         }
       });
@@ -129,66 +130,61 @@ function righeCanto(doc, canto) {
   for (const b of canto.blocchi) {
     if (["verso", "libero", "ritornello", "ponte"].includes(b.tipo)) {
       const rit = b.tipo === "ritornello";
-      const rientro = rit ? 20 : 0;
+      const rientro = rit ? 20 * k : 0;
       const inizio = righe.length;
       for (const r of b.righe) {
-        if (r.commento) metti(11, (d, y) => { font("italic", 8.5, PDF.grigio); d.text(pulisci(r.commento), PDF.sx + rientro, y + 8.5); });
+        if (r.commento) metti(11 * k, (d, y) => { font("italic", 8.5 * k, PDF.grigio); d.text(pulisci(r.commento), PDF.sx + rientro, y + 8.5 * k); });
         else rigaConAccordi(r, rientro, rit ? "italic" : "normal");
       }
       if (rit && righe[inizio]) {  // "Rit." accanto alla prima riga del ritornello
         const prima = righe[inizio].disegna;
         righe[inizio].disegna = (d, y) => {
           prima(d, y);
-          font("bold", 7, PDF.rosso, "helvetica");
-          d.text("Rit.", PDF.sx, y + righe[inizio].h - 3);
+          font("bold", 7 * k, PDF.rosso, "helvetica");
+          d.text("Rit.", PDF.sx, y + righe[inizio].h - 3 * k);
         };
       }
-      metti(PDF.spazioBlocco, () => {});
+      metti(PDF.spazioBlocco * k, () => {});
     } else if (b.tipo === "rif-ritornello") {
-      metti(14, (d, y) => { font("bold", 8, PDF.rosso, "helvetica"); d.text("Rit.", PDF.sx, y + 9); });
+      metti(14 * k, (d, y) => { font("bold", 8 * k, PDF.rosso, "helvetica"); d.text("Rit.", PDF.sx, y + 9 * k); });
     } else if (b.tipo === "sequenza") {
       const testo = (b.etichetta ? b.etichetta + ":  " : "") + b.accordi.map(acc).join("   ");
-      font("bold", 8.5, PDF.rosso, "helvetica");
+      font("bold", 8.5 * k, PDF.rosso, "helvetica");
       for (const r of doc.splitTextToSize(pulisci(testo), PDF.larghezza))
-        metti(12, (d, y) => { font("bold", 8.5, PDF.rosso, "helvetica"); d.text(r, PDF.sx, y + 9); });
-      metti(PDF.spazioBlocco / 2, () => {});
+        metti(12 * k, (d, y) => { font("bold", 8.5 * k, PDF.rosso, "helvetica"); d.text(r, PDF.sx, y + 9 * k); });
+      metti(PDF.spazioBlocco / 2 * k, () => {});
     } else if (b.tipo === "commento") {
-      metti(12, (d, y) => { font("italic", 9, PDF.grigio); d.text(pulisci(b.testo), PDF.sx, y + 9); });
+      metti(12 * k, (d, y) => { font("italic", 9 * k, PDF.grigio); d.text(pulisci(b.testo), PDF.sx, y + 9 * k); });
     }
   }
   return righe;
 }
 
-/** Distribuisce i canti nelle pagine: un canto corto non si spezza; se non ci sta, va alla pagina dopo. */
+/** Distribuisce i canti nelle pagine. Un canto non si divide mai tra due pagine: se non ci sta
+    nello spazio rimasto va alla pagina dopo; se è più lungo di una pagina intera si rimpicciolisce. */
 function impagina(doc, canti) {
   const alto = PDF.H - PDF.su - PDF.giu;
   const pagine = [[]];
   let y = 0;
   const posizioni = new Map();
+  const misura = (canto, k) => {
+    const righe = righeCanto(doc, canto, k);
+    while (righe.length && righe[righe.length - 1].h <= PDF.spazioBlocco * k && !righe[righe.length - 1].unita) righe.pop();
+    return { righe, totale: righe.reduce((s, r) => s + r.h, 0) };
+  };
   for (const canto of canti) {
-    const righe = righeCanto(doc, canto);
-    while (righe.length && righe[righe.length - 1].h <= PDF.spazioBlocco && !righe[righe.length - 1].unita) righe.pop();
-    const totale = righe.reduce((s, r) => s + r.h, 0);
+    let k = 1, { righe, totale } = misura(canto, k);
+    while (totale > alto && k > .5) ({ righe, totale } = misura(canto, k = Math.round((k - .04) * 100) / 100));
     const prima = y > 0 ? PDF.spazioCanti : 0;
-    if (y > 0 && (y + prima + totale > alto)) {
-      // non ci sta: pagina nuova (anche se è lungo, almeno comincia in cima)
+    if (y > 0 && y + prima + totale > alto) {
       pagine.push([]); y = 0;
     } else if (y > 0) {
       const ySep = y + prima / 2;
       pagine[pagine.length - 1].push(d => { d.setDrawColor(210, 200, 190); d.setLineWidth(.5); d.line(PDF.sx + 60, PDF.su + ySep, PDF.L - PDF.dx - 60, PDF.su + ySep); });
       y += prima;
     }
-    for (const [i, r] of righe.entries()) {
-      // a fondo pagina si va a capo pagina; titolo e intestazione restano attaccati alle prime righe del canto
-      let serve = r.h;
-      if (r.unita) {
-        let j = i;
-        serve = 0;
-        while (j < righe.length && righe[j].unita) serve += righe[j++].h;
-        for (let k = 0; k < 2 && j < righe.length; k++) serve += righe[j++].h;
-      }
-      if (y + serve > alto && y > 0) { pagine.push([]); y = 0; }
-      if (i === 0) posizioni.set(canto.id, { pagina: pagine.length - 1, y });
+    posizioni.set(canto.id, { pagina: pagine.length - 1, y, k });
+    for (const r of righe) {
       const yr = y;
       pagine[pagine.length - 1].push(d => r.disegna(d, PDF.su + yr));
       y += r.h;
@@ -218,7 +214,12 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
 
   // 1. impaginazione dei canti (serve prima, per scrivere nell'indice i numeri di pagina)
   const { pagine, posizioni } = impagina(doc, canti);
-  const perPaginaIndice = Math.floor((PDF.H - PDF.su - PDF.giu - 30) / 14);
+  // indice compatto: tre colonne (per tutti i canti sta in una pagina), una sola per le scalette corte
+  const colonne = canti.length > 25 ? 3 : 1;
+  const altoIndice = PDF.H - PDF.su - PDF.giu - 26;
+  const passo = Math.max(9.5, Math.min(14, altoIndice / Math.ceil(canti.length / colonne)));
+  const righePerColonna = Math.floor(altoIndice / passo);
+  const perPaginaIndice = colonne * righePerColonna;
   const pagineIndice = Math.max(1, Math.ceil(canti.length / perPaginaIndice));
   const INDICE = 3;  // copertina, preghiera, indice
   const primaCanti = INDICE + pagineIndice;
@@ -249,7 +250,7 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
     doc.text(pulisci(sottotitolo), PDF.L / 2, 450, { align: "center", maxWidth: PDF.larghezza });
   }
   doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...PDF.grigio);
-  doc.text(`${canti.length} ${canti.length === 1 ? "canto" : "canti"} · ${oggi}`, PDF.L / 2, PDF.H - 30, { align: "center" });
+  doc.text(`${canti.length} ${canti.length === 1 ? "canto" : "canti"}`, PDF.L / 2, PDF.H - 30, { align: "center" });
 
   // 3. preghiere
   const preghiera = (p, numero) => {
@@ -273,35 +274,36 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
   if (preghieraInizio) preghiera(preghieraInizio, 2);
   else { doc.addPage(); piede(2); }
 
-  // 4. indice: ogni riga porta al suo canto
+  // 4. indice: ogni voce porta al suo canto; in ordine dall'alto in basso, colonna per colonna
   const numerato = !!titolo;  // per una scaletta: l'ordine della scaletta, numerato
+  const spazioColonne = 10;
+  const largaColonna = (PDF.larghezza - spazioColonne * (colonne - 1)) / colonne;
+  const corpo = colonne > 1 ? Math.min(8.5, passo * .75) : 11;
   for (let k = 0; k < pagineIndice; k++) {
     doc.addPage();
-    let y = PDF.su + 14;
     if (k === 0) {
-      doc.setFont("times", "bold"); doc.setFontSize(16); doc.setTextColor(0, 0, 0);
-      doc.text("Indice", PDF.sx, y);
+      doc.setFont("times", "bold"); doc.setFontSize(14); doc.setTextColor(0, 0, 0);
+      doc.text("Indice", PDF.sx, PDF.su + 10);
     }
-    y += 24;
-    for (const [i, c] of canti.slice(k * perPaginaIndice, (k + 1) * perPaginaIndice).entries()) {
+    canti.slice(k * perPaginaIndice, (k + 1) * perPaginaIndice).forEach((c, i) => {
       const pos = posizioni.get(c.id);
-      const pagina = primaCanti + pos.pagina;
-      const nome = pulisci((numerato ? `${k * perPaginaIndice + i + 1}. ` : "") + c.meta.title);
-      doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(0, 0, 0);
-      const nomeCorto = doc.splitTextToSize(nome, PDF.larghezza - 40)[0];
-      doc.text(nomeCorto, PDF.sx, y);
-      const fine = PDF.sx + doc.getTextWidth(nomeCorto) + 4;
-      doc.setTextColor(...PDF.grigio);
-      doc.text(String(pagina), PDF.L - PDF.dx, y, { align: "right" });
-      const finePuntini = PDF.L - PDF.dx - doc.getTextWidth(String(pagina)) - 4;
-      doc.setFontSize(8);
-      let puntini = "";
-      while (doc.getTextWidth(puntini + ". ") < finePuntini - fine) puntini += ". ";
-      doc.text(puntini, fine, y);
-      // tutta la riga si tocca
-      doc.link(PDF.sx - 4, y - 11, PDF.larghezza + 8, 14, { pageNumber: pagina, magFactor: "XYZ", top: Math.max(0, PDF.su + pos.y - 6) });
-      y += 14;
-    }
+      const pagina = String(primaCanti + pos.pagina);
+      const x = PDF.sx + Math.floor(i / righePerColonna) * (largaColonna + spazioColonne);
+      const y = PDF.su + 26 + (i % righePerColonna) * passo + corpo;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(corpo * .9); doc.setTextColor(...PDF.grigio);
+      const largaPagina = doc.getTextWidth(pagina);
+      doc.text(pagina, x + largaColonna, y, { align: "right" });
+      doc.setFont("times", "normal"); doc.setFontSize(corpo); doc.setTextColor(0, 0, 0);
+      let nome = pulisci((numerato ? `${k * perPaginaIndice + i + 1}. ` : "") + c.meta.title);
+      const spazio = largaColonna - largaPagina - 4;
+      if (doc.getTextWidth(nome) > spazio) {  // titolo troppo lungo per la colonna: si accorcia
+        while (nome.length > 3 && doc.getTextWidth(nome + "…") > spazio) nome = nome.slice(0, -1);
+        nome = nome.trimEnd() + "…";
+      }
+      doc.text(nome, x, y);
+      // tutta la voce si tocca
+      doc.link(x - 2, y - corpo, largaColonna + 4, passo, { pageNumber: Number(pagina), magFactor: "XYZ", top: Math.max(0, PDF.su + pos.y - 6) });
+    });
     piede(INDICE + k);
   }
 
@@ -315,6 +317,11 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
 
   // 6. preghiera finale
   if (preghieraFine) preghiera(preghieraFine, primaCanti + pagine.length);
+
+  // in fondo all'ultima pagina, a destra: quando è stato scaricato
+  doc.setPage(doc.getNumberOfPages());
+  doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); doc.setTextColor(...PDF.grigio);
+  doc.text(`Scaricato il ${oggi}`, PDF.L - PDF.dx, PDF.H - 34, { align: "right" });
 
   const nomeFile = ("Chi canta prega due volte" + (titolo ? " - " + titolo : "")).replace(/[\\/:*?"<>|]/g, "") + ".pdf";
   doc.save(nomeFile);
