@@ -590,3 +590,8 @@ body.con-pianoforte .acc { cursor: pointer; }
   position: absolute; top: 0; bottom: 0; border: 2px solid var(--rubrica); border-radius: 4px;
   background: color-mix(in srgb, var(--rubrica) 12%, transparent); pointer-events: none;
 }
+
+/* PDF: accanto al numero dei canti, e accanto a ▶ delle scalette */
+.riga-conteggio { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pdf-elenco { min-height: 28px; padding: 2px 10px; font-size: 13px; }
+.riga-scaletta .pdf { color: var(--tenue); font-size: 15px; }

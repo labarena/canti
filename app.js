@@ -338,6 +338,7 @@ function leggiChordPro(testo, file) {
         case "transpose": case "trasposizione": meta.trasposizione = nelGiro(parseInt(valore, 10) || 0); break;
         case "time": case "tempo": case "ritmo": leggiTempo(valore, meta); break;
         case "tags": meta.tags = valore.split(",").map(s => s.trim()).filter(Boolean); break;
+        case "preghiera": meta.preghiera = valore || "inizio"; break;  // solo per il PDF: inizio o fine
         case "start_of_chorus": case "soc": sezione = { tipo: "ritornello", righe: [] }; blocchi.push(sezione); break;
         case "start_of_verse": case "sov": sezione = { tipo: "verso", righe: [] }; blocchi.push(sezione); break;
         case "start_of_bridge": case "sob": sezione = { tipo: "ponte", righe: [] }; blocchi.push(sezione); break;
@@ -392,9 +393,13 @@ function normalizza(s) {
 // i canti come testo ChordPro ({ file, testo }): in locale arrivano da canti.js, online dal file cifrato
 let TESTI = [];
 let CANTI = [];
+let PREGHIERE = [];  // le preghiere del PDF (all'inizio e in fondo): non compaiono tra i canti
+let ELENCO = [];     // i canti dell'elenco come li si vede ora (ricerca e filtri), per il PDF
 function impostaCanti(testi) {
   TESTI = testi;
-  CANTI = testi.map(c => leggiChordPro(c.testo, c.file))
+  const tutti = testi.map(c => leggiChordPro(c.testo, c.file));
+  PREGHIERE = tutti.filter(c => c.meta.preghiera);
+  CANTI = tutti.filter(c => !c.meta.preghiera)
     .sort((a, b) => a.meta.title.localeCompare(b.meta.title, "it"));
 }
 
@@ -661,6 +666,8 @@ function aggiornaElenco() {
     }
   }
   const filtrato = termini.length || stato.filtri.length;
+  ELENCO = filtrato ? trovati.map(x => x.c).sort((a, b) => a.meta.title.localeCompare(b.meta.title, "it")) : CANTI;
+  $("pdf-elenco").title = filtrato ? `Scarica il PDF dei ${trovati.length} canti trovati` : "Scarica il PDF di tutti i canti";
   $("conteggio").textContent = filtrato
     ? `${trovati.length} ${trovati.length === 1 ? "canto trovato" : "canti trovati"}`
     : `${CANTI.length} canti`;
@@ -1873,11 +1880,20 @@ function disegnaScalette() {
       const via = el("button", "avvia", "▶");
       via.title = "Inizia la scaletta";
       via.onclick = () => iniziaScaletta(s);
-      li.append(via);
+      const pdf = el("button", "avvia pdf", "📄");
+      pdf.title = "Scarica il PDF della scaletta";
+      pdf.onclick = () => pdfScaletta(s);
+      li.append(pdf, via);
     }
     ul.append(li);
   }
   box.append(ul);
+}
+
+/** PDF della scaletta: i suoi canti nel suo ordine. */
+function pdfScaletta(s) {
+  const canti = s.canti.map(id => CANTI.find(c => c.id === id)).filter(Boolean);
+  scaricaPDF(canti, s.nome, s.occasione || "");
 }
 
 /** "+ Scaletta" sulla pagina del canto: lo aggiunge in fondo a una scaletta (o a una nuova). */
@@ -1947,6 +1963,12 @@ function disegnaScaletta(box, s) {
     const inizia = el("button", "primario", "▶ Inizia");
     inizia.onclick = () => iniziaScaletta(s);
     comandi.append(inizia);
+  }
+  if (s.canti.some(titoloDi)) {
+    const pdf = el("button", null, "📄 PDF");
+    pdf.title = "Scarica il PDF della scaletta";
+    pdf.onclick = () => pdfScaletta(s);
+    comandi.append(pdf);
   }
   const modifica = el("button", null, "✎ Modifica");
   modifica.onclick = () => modificaScaletta(s);
