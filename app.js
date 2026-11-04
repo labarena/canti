@@ -1282,7 +1282,7 @@ function cambiaVelocita(delta) {
 // lettura arriva dal link (#k=...) e resta salvata nel dispositivo. Per modificare serve la
 // password, che sblocca il token GitHub conservato (cifrato) in dati/editor.bin.
 const sito = { attivo: false, meta: null, chiave: null, token: null };
-const SITO_ONLINE = "https://filippodecarlo-cloud.github.io/canti/";
+const SITO_ONLINE = "https://labarena.github.io/canti/";
 const ITER_EDITOR = 600000;
 const codifica = s => new TextEncoder().encode(s);
 const decodifica = b => new TextDecoder().decode(b);
@@ -1488,6 +1488,7 @@ async function configuraModifiche() {
       testo: "Per salvare i canti serve un <b>token GitHub</b> che possa scrivere solo nel repository " +
         `<b>${sito.meta.repo}</b>:<ol><li>apri <a href="https://github.com/settings/personal-access-tokens/new" ` +
         'target="_blank" rel="noopener">github.com → nuovo token</a>;</li>' +
+        `<li>in <i>Resource owner</i> scegli <b>${sito.meta.repo.split("/")[0]}</b>;</li>` +
         `<li>in <i>Repository access</i> scegli <i>Only select repositories</i> → <b>${sito.meta.repo.split("/")[1]}</b>;</li>` +
         "<li>in <i>Permissions → Repository permissions</i> metti <b>Contents: Read and write</b>;</li>" +
         "<li>genera il token e incollalo qui sotto.</li></ol>Poi scegli la password per le modifiche: " +
