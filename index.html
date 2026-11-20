@@ -104,6 +104,7 @@
         <code>8</code> croma, <code>16</code> semicroma, <code>sol4.</code> puntata; senza numero vale la precedente ·
         <b>pausa</b>: <code>p4</code> · <b>ottava sopra</b>: <code>re'</code> · <b>ottava sotto</b>: <code>la,</code>
         (anche <code>re'4</code>, <code>la,2</code>) · <b>battuta</b>: <code>|</code> ·
+        <b>accordo</b> sopra il rigo: tra quadre attaccato alla nota, <code>[La-]do8</code> ·
         <b>testo</b> sotto le note: riga <code>testo: A-gnel-lo di Dio</code>
       </p>
       <div class="pm-tonalita" role="group" aria-label="Tonalità per tutti">
@@ -134,13 +135,15 @@
             Indicazioni: <code>{comment: Donne}</code>.</p>
           <p><b>Melodia</b>:</p>
           <pre>{start_of_melodia}
-note: la4 re8 re re4 | p4 fa#2. |
+note: [Re]la4 re8 re re4 | [Sol]p4 fa#2. |
 testo: A-gnel-lo di Dio
 {end_of_melodia}</pre>
           <p>Durata dopo la nota: <code>1</code> semibreve, <code>2</code> minima, <code>4</code> semiminima,
             <code>8</code> croma, <code>16</code> semicroma, punto per la puntata (<code>sol4.</code>); senza numero vale la
             precedente. Pausa: <code>p4</code>. Ottava: <code>'</code> sopra, <code>,</code> sotto (<code>sib,2</code>).
-            Battuta: <code>|</code>. L’armatura di chiave è quella della tonalità del canto (<code>{key}</code>);
+            Battuta: <code>|</code>. Accordi sopra il pentagramma: tra quadre, attaccati alla nota o alla pausa
+            su cui cadono (<code>[Re]la4</code>, <code>[Sol]p4</code>); si traspongono e cambiano notazione (Do / C) con il resto del canto.
+            L’armatura di chiave è quella della tonalità del canto (<code>{key}</code>);
             <b>tempo</b> (la misura, 4/4, 3/4…) e <b>ritmo</b> (i battiti al minuto) si scelgono anche dai due comandi sotto il pentagramma, in cima all’editor.</p>
         </div>
       </details>

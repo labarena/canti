@@ -192,7 +192,11 @@ function noteDaTrattini(testo) {
   return note.join(" ");
 }
 
-function abcDaMelodia(mel) {
+/** Un accordo tra quadre prima della nota ("[La-]do8") va sopra il pentagramma: { accordo, nota }. */
+const RE_ACCORDO_NOTA = /^\[([^\]]+)\](.*)$/;
+
+/** formato: come scrivere l'accordo (trasposto, Do/C); di serie com'è scritto. */
+function abcDaMelodia(mel, formato = a => a) {
   const errori = [...mel.errori];
   const ton = leggiTonalita(mel.tonalita);
   const mTon = /^\s*(do|re|mi|fa|sol|la|si)([#b]?)/i.exec(mel.tonalita || "");
@@ -205,14 +209,19 @@ function abcDaMelodia(mel) {
     testo: r.testo,
     simboli: r.note.split(/\s+/).filter(Boolean).map(tok => {
       if (RE_BARRA.test(tok)) return { barra: tok };
-      const m = RE_NOTA_MEL.exec(tok);
-      if (!m || (m[4] && !DURATE[m[4]])) { errori.push(`non capisco "${tok}"`); return null; }
+      const conAccordo = RE_ACCORDO_NOTA.exec(tok);
+      const accordo = conAccordo ? conAccordo[1].trim() : "";
+      const m = RE_NOTA_MEL.exec(conAccordo ? conAccordo[2] : tok);
+      if (!m || (m[4] && !DURATE[m[4]])) {
+        errori.push(conAccordo && !conAccordo[2] ? `l'accordo "${tok}" va attaccato a una nota ([La-]do4)` : `non capisco "${tok}"`);
+        return null;
+      }
       if (m[4]) figura = +m[4];
       const durata = DURATE[figura] * (m[5] ? 1.5 : 1);
       if (!Number.isInteger(durata)) { errori.push(`non capisco "${tok}"`); return null; }
       const pausa = m[1].toLowerCase() === "p";
       const salti = [...m[3] + m[6]].reduce((a, c) => a + (c === "," ? -1 : 1), 0);
-      return { pausa, nome: pausa ? null : maiuscola(m[1]), alt: m[2], salti, durata };
+      return { pausa, nome: pausa ? null : maiuscola(m[1]), alt: m[2], salti, durata, accordo };
     }).filter(Boolean),
   }));
   const note = righe.flatMap(r => r.simboli).filter(s => s.nome);
@@ -236,7 +245,9 @@ function abcDaMelodia(mel) {
   const scrivi = s => {
     if (s.barra) { alterate = {}; return s.barra; }
     const dur = s.durata === 1 ? "" : String(s.durata);
-    if (s.pausa) return "z" + dur;
+    // "^…" è una scritta sopra il rigo: abcjs non la traspone né la suona (lo fa già formato)
+    const sopra = s.accordo ? `"^${formato(s.accordo).replace(/"/g, "'")}"` : "";
+    if (s.pausa) return sopra + "z" + dur;
     const lettera = LETTERE[s.nome];
     const naturale = s.midi + sposta - (s.alt === "#" ? 1 : s.alt === "b" ? -1 : 0);
     const ottava = Math.floor(naturale / 12) - 1;
@@ -247,7 +258,7 @@ function abcDaMelodia(mel) {
       segno = s.alt === "#" ? "^" : s.alt === "b" ? "_" : "=";
       alterate[nome] = s.alt;
     }
-    return segno + nome + dur;
+    return sopra + segno + nome + dur;
   };
   const corpo = righe.filter(r => r.simboli.length).map((r, i, tutte) => {
     let linea = r.simboli.map(scrivi).join(" ");
@@ -259,7 +270,7 @@ function abcDaMelodia(mel) {
 }
 
 /** Testo di un blocco melodia (in uno dei tre formati) -> ABC pronto da disegnare. */
-function abcDaSorgente(sorgente, canto, ritmo = 0) {
+function abcDaSorgente(sorgente, canto, ritmo = 0, formato = undefined) {
   const abc = /\{\s*(?:start_of_abc|soa)\s*\}([\s\S]*?)(?:\{\s*(?:end_of_abc|eoa)\s*\}|$)/i.exec(sorgente);
   if (abc) return { abc: abc[1].trim(), errori: [], tonalita: "", haTempo: /^Q:/m.test(abc[1]) };
 
@@ -279,7 +290,7 @@ function abcDaSorgente(sorgente, canto, ritmo = 0) {
     mel.bpm = canto.meta.bpm || mel.bpm;
   }
   if (ritmo) mel.bpm = String(ritmo);  // ritmo scelto su questo dispositivo
-  return { ...abcDaMelodia(mel), tonalita: mel.tonalita, haTempo: !!mel.bpm };
+  return { ...abcDaMelodia(mel, formato), tonalita: mel.tonalita, haTempo: !!mel.bpm };
 }
 
 /** "Re" -> "Re maggiore", "Re-" -> "Re minore" */
@@ -884,7 +895,10 @@ function disegnaMelodia(sorgente, canto, n, bemolli, apriEditor = false, ritmo =
   let visual = null, risultato = null, traspAttuale = n;
   const rendi = (testo, trasp) => {
     // il ritmo del dispositivo vale per la melodia così com'è, non mentre la si riscrive
-    risultato = abcDaSorgente(testo, canto, testo === sorgente ? ritmo : 0);
+    // gli accordi sopra il rigo seguono la trasposizione e la notazione Do/C, come nel testo
+    const bemolliAcc = trasp === n ? bemolli : usaBemolli(leggiTonalita(canto && canto.meta.key), trasp);
+    const formato = a => trasponiAccordo(a, trasp, bemolliAcc, stato.int);
+    risultato = abcDaSorgente(testo, canto, testo === sorgente ? ritmo : 0, formato);
     traspAttuale = trasp;
     const r = risultato;
     const ton = trasponiNomeTonalita(r.tonalita, trasp);
@@ -941,6 +955,7 @@ function disegnaMelodia(sorgente, canto, n, bemolli, apriEditor = false, ritmo =
     "1 semibreve, 2 minima, 4 semiminima, 8 croma, 16 semicroma, con il punto per la nota puntata (<code>sol4.</code>) · " +
     "senza numero vale la durata precedente · <b>pausa</b>: <code>p4</code>, <code>p2</code>… · " +
     "<b>ottava</b>: <code>'</code> sopra, <code>,</code> sotto (<code>sib,2</code>) · <b>battuta</b>: <code>|</code> · " +
+    "<b>accordo</b> sopra il rigo: tra quadre attaccato alla nota (<code>[La-]do8</code>) · " +
     "<b>testo</b>: sillabe divise da <code>-</code>, una riga <code>testo:</code> sotto ogni riga <code>note:</code> · " +
     "tonalità, tempo e ritmo sono quelli del canto (<code>{key}</code>, <code>{tempo}</code>, <code>{ritmo}</code>).";
 
@@ -1702,7 +1717,12 @@ function trasponiTesto(testo, d, toccaChiave = true) {
     if (/^\{\s*start_of_melodia/i.test(riga)) inMelodia = true;
     if (/^\{\s*end_of_melodia/i.test(riga)) inMelodia = false;
     if (inMelodia) return riga.replace(/^(\s*note\s*:)(.*)$/i, (_, inizio, note) =>
-      inizio + note.replace(/\S+/g, tok => RE_NOTA_MEL.test(tok) && !/^p/i.test(tok) ? nota(tok) : tok));
+      inizio + note.replace(/\S+/g, tok => {
+        // "[La-]do8": si traspongono sia l'accordo sia la nota
+        const c = RE_ACCORDO_NOTA.exec(tok);
+        const testa = c ? `[${accordo(c[1])}]` : "", resto = c ? c[2] : tok;
+        return testa + (RE_NOTA_MEL.test(resto) && !/^p/i.test(resto) ? nota(resto) : resto);
+      }));
     if (/^\{key:/i.test(riga)) return toccaChiave ? riga.replace(/^(\{key:\s*)(.*?)(\s*\})$/i, (_, i, k, f) => i + accordo(k) + f) : riga;
     // sequenze di soli accordi: {intro: Re La}, {musica: …}, {finale: …}, {ponte: …}, {sequenza: …}
     const seq = /^(\{\s*(?:intro|musica|finale|ponte|sequenza)\s*:\s*)(.*?)(\s*\})$/i.exec(riga);
