@@ -195,10 +195,11 @@ function noteDaTrattini(testo) {
 /**
  * Una nota della riga note: con l'accordo davanti ("[La-]do8", va sopra il pentagramma) e le tonde della terzina
  * ("(mi8 re do)": "(" sulla prima, ")" sull'ultima; anche "([Do]mi8" o "[Do](mi8").
+ * Un "-" in fondo alla nota la lega alla successiva ("fa#2- | fa#4").
  */
 function scomponiNota(tok) {
-  const m = /^(\(?)(?:\[([^\]]*)\])?(\(?)(.*?)(\)?)$/.exec(tok);
-  return { apre: !!(m[1] || m[3]), accordo: (m[2] || "").trim(), haAccordo: m[2] !== undefined, nota: m[4], chiude: !!m[5] };
+  const m = /^(\(?)(?:\[([^\]]*)\])?(\(?)(.*?)(-?)(\)?)$/.exec(tok);
+  return { apre: !!(m[1] || m[3]), accordo: (m[2] || "").trim(), haAccordo: m[2] !== undefined, nota: m[4], lega: !!m[5], chiude: !!m[6] };
 }
 
 /** formato: come scrivere l'accordo (trasposto, Do/C); di serie com'è scritto. */
@@ -226,7 +227,8 @@ function abcDaMelodia(mel, formato = a => a) {
       if (!Number.isInteger(durata)) { errori.push(`non capisco "${tok}"`); return null; }
       const pausa = m[1].toLowerCase() === "p";
       const salti = [...m[3] + m[6]].reduce((a, c) => a + (c === "," ? -1 : 1), 0);
-      const s = { pausa, nome: pausa ? null : maiuscola(m[1]), alt: m[2], salti, durata, accordo: t.accordo };
+      if (t.lega && pausa) errori.push(`una pausa non si lega: "${tok}"`);
+      const s = { pausa, nome: pausa ? null : maiuscola(m[1]), alt: m[2], salti, durata, accordo: t.accordo, lega: t.lega && !pausa };
       if (t.apre) {
         if (aperta) { errori.push(`terzina dentro una terzina in "${tok}": chiudi prima con )`); aperta.terzina = 0; }
         aperta = s;
@@ -278,7 +280,7 @@ function abcDaMelodia(mel, formato = a => a) {
       segno = s.alt === "#" ? "^" : s.alt === "b" ? "_" : "=";
       alterate[nome] = s.alt;
     }
-    return tupla + sopra + segno + nome + dur;
+    return tupla + sopra + segno + nome + dur + (s.lega ? "-" : "");
   };
   const corpo = righe.filter(r => r.simboli.length).map((r, i, tutte) => {
     let linea = r.simboli.map(scrivi).join(" ");
@@ -977,6 +979,7 @@ function disegnaMelodia(sorgente, canto, n, bemolli, apriEditor = false, ritmo =
     "<b>ottava</b>: <code>'</code> sopra, <code>,</code> sotto (<code>sib,2</code>) · <b>battuta</b>: <code>|</code> · " +
     "<b>accordo</b> sopra il rigo: tra quadre attaccato alla nota (<code>[La-]do8</code>) · " +
     "<b>terzina</b>: tra tonde, <code>(mi8 re do)</code> o <code>(sol4 sol8)</code> · " +
+    "<b>legatura</b>: <code>-</code> dopo la nota, <code>fa#2- | fa#4</code> · " +
     "<b>testo</b>: sillabe divise da <code>-</code>, una riga <code>testo:</code> sotto ogni riga <code>note:</code> · " +
     "tonalità, tempo e ritmo sono quelli del canto (<code>{key}</code>, <code>{tempo}</code>, <code>{ritmo}</code>).";
 
@@ -1739,11 +1742,11 @@ function trasponiTesto(testo, d, toccaChiave = true) {
     if (/^\{\s*end_of_melodia/i.test(riga)) inMelodia = false;
     if (inMelodia) return riga.replace(/^(\s*note\s*:)(.*)$/i, (_, inizio, note) =>
       inizio + note.replace(/\S+/g, tok => {
-        // "[La-]do8", "(mi8": si traspongono l'accordo e la nota, le tonde della terzina restano
+        // "[La-]do8", "(mi8", "fa#2-": si traspongono l'accordo e la nota, tonde e legatura restano
         if (RE_BARRA.test(tok)) return tok;
         const t = scomponiNota(tok);
         const testa = (t.apre ? "(" : "") + (t.haAccordo ? `[${t.accordo ? accordo(t.accordo) : ""}]` : "");
-        return testa + (RE_NOTA_MEL.test(t.nota) && !/^p/i.test(t.nota) ? nota(t.nota) : t.nota) + (t.chiude ? ")" : "");
+        return testa + (RE_NOTA_MEL.test(t.nota) && !/^p/i.test(t.nota) ? nota(t.nota) : t.nota) + (t.lega ? "-" : "") + (t.chiude ? ")" : "");
       }));
     if (/^\{key:/i.test(riga)) return toccaChiave ? riga.replace(/^(\{key:\s*)(.*?)(\s*\})$/i, (_, i, k, f) => i + accordo(k) + f) : riga;
     // sequenze di soli accordi: {intro: Re La}, {musica: …}, {finale: …}, {ponte: …}, {sequenza: …}
