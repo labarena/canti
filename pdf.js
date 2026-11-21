@@ -27,9 +27,16 @@ const EXTRA_WINANSI = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜
 const pulisci = s => [...(s || "").replace(/♩/g, "").replace(/\s+$/, "")]
   .map(c => c.charCodeAt(0) <= 255 || EXTRA_WINANSI.includes(c) ? c : "").join("");
 
+/** Una riga ChordPro senza accordi. Il "-" fra due accordi ("gno[La7]-[Re]re") serviva solo a far posto
+    all'accordo e se ne va; i trattini scritti nel testo ("A - Alle-lu-u-ia") restano. */
+const senzaAccordi = riga => riga.replace(/\[[^\]]*\]\s*-\s*(?=\[)/g, "").replace(/\[[^\]]*\]/g, "").replace(/\s+/g, " ").trim();
+/** Nel PDF solo testo le note "DA CONTROLLARE" (promemoria, quasi sempre sugli accordi) non servono a chi canta. */
+const notaInterna = testo => /^\s*da controllare/i.test(testo || "");
+
 /** Prepara le righe di un canto (misurate ma non ancora disegnate): ciascuna { h, disegna(doc, y), unita }.
-    k rimpicciolisce tutto (caratteri, righe, spazi): serve perché un canto lungo stia in una pagina. */
-function righeCanto(doc, canto, k = 1) {
+    k rimpicciolisce tutto (caratteri, righe, spazi): serve perché un canto lungo stia in una pagina.
+    soloTesto: senza accordi, melodia, sequenze di accordi e tonalità (meno pagine da stampare). */
+function righeCanto(doc, canto, k = 1, soloTesto = false) {
   const n = trasposizioneDi(canto);
   const bemolli = usaBemolli(leggiTonalita(canto.meta.key), n);
   const acc = a => pulisci(trasponiAccordo(a, n, bemolli, stato.int));
@@ -47,10 +54,10 @@ function righeCanto(doc, canto, k = 1) {
   if (dettagli) metti(11 * k, (d, y) => { font("italic", 8.5 * k, PDF.grigio); d.text(pulisci(dettagli), PDF.sx, y + 8.5 * k); }, true);
   const { bpm, metro } = tempoMetronomo(canto);
   const info = [m.key && "Tonalità " + nomeTonalita(canto, n), metro, bpm && "ritmo " + bpm].filter(Boolean).join(" · ");
-  if (info) metti(11 * k, (d, y) => { font("normal", 7.5 * k, PDF.grigio, "helvetica"); d.text(pulisci(info), PDF.sx, y + 8 * k); }, true);
+  if (info && !soloTesto) metti(11 * k, (d, y) => { font("normal", 7.5 * k, PDF.grigio, "helvetica"); d.text(pulisci(info), PDF.sx, y + 8 * k); }, true);
   for (const b of canto.blocchi) {
-    if (b.tipo !== "melodia" || /start_of_abc/i.test(b.sorgente)) continue;
-    const note = [...b.sorgente.matchAll(/^\s*note\s*:(.*)$/gim)].map(x => x[1].trim()).filter(Boolean).join("  ");
+    if (soloTesto || b.tipo !== "melodia" || /start_of_abc/i.test(b.sorgente)) continue;
+    const note = [...b.sorgente.matchAll(/^\s*note\s*:(.*)$/gim)].map(x => x[1].replace(/\[[^\]]*\]/g, "").trim()).filter(Boolean).join("  ");  // senza gli accordi sopra il rigo
     if (note) {
       font("italic", 8 * k);
       for (const r of doc.splitTextToSize(pulisci("Melodia: " + note), PDF.larghezza))
@@ -133,8 +140,10 @@ function righeCanto(doc, canto, k = 1) {
       const rientro = rit ? 20 * k : 0;
       const inizio = righe.length;
       for (const r of b.righe) {
+        if (r.commento && soloTesto && notaInterna(r.commento)) continue;
         if (r.commento) metti(11 * k, (d, y) => { font("italic", 8.5 * k, PDF.grigio); d.text(pulisci(r.commento), PDF.sx + rientro, y + 8.5 * k); });
-        else rigaConAccordi(r, rientro, rit ? "italic" : "normal");
+        else if (!soloTesto) rigaConAccordi(r, rientro, rit ? "italic" : "normal");
+        else if (senzaAccordi(r)) rigaConAccordi(senzaAccordi(r), rientro, rit ? "italic" : "normal");  // le righe di soli accordi spariscono
       }
       if (rit && righe[inizio]) {  // "Rit." accanto alla prima riga del ritornello
         const prima = righe[inizio].disegna;
@@ -147,13 +156,13 @@ function righeCanto(doc, canto, k = 1) {
       metti(PDF.spazioBlocco * k, () => {});
     } else if (b.tipo === "rif-ritornello") {
       metti(14 * k, (d, y) => { font("bold", 8 * k, PDF.rosso, "helvetica"); d.text("Rit.", PDF.sx, y + 9 * k); });
-    } else if (b.tipo === "sequenza") {
+    } else if (b.tipo === "sequenza" && !soloTesto) {
       const testo = (b.etichetta ? b.etichetta + ":  " : "") + b.accordi.map(acc).join("   ");
       font("bold", 8.5 * k, PDF.rosso, "helvetica");
       for (const r of doc.splitTextToSize(pulisci(testo), PDF.larghezza))
         metti(12 * k, (d, y) => { font("bold", 8.5 * k, PDF.rosso, "helvetica"); d.text(r, PDF.sx, y + 9 * k); });
       metti(PDF.spazioBlocco / 2 * k, () => {});
-    } else if (b.tipo === "commento") {
+    } else if (b.tipo === "commento" && !(soloTesto && notaInterna(b.testo))) {
       metti(12 * k, (d, y) => { font("italic", 9 * k, PDF.grigio); d.text(pulisci(b.testo), PDF.sx, y + 9 * k); });
     }
   }
@@ -162,13 +171,13 @@ function righeCanto(doc, canto, k = 1) {
 
 /** Distribuisce i canti nelle pagine. Un canto non si divide mai tra due pagine: se non ci sta
     nello spazio rimasto va alla pagina dopo; se è più lungo di una pagina intera si rimpicciolisce. */
-function impagina(doc, canti) {
+function impagina(doc, canti, soloTesto = false) {
   const alto = PDF.H - PDF.su - PDF.giu;
   const pagine = [[]];
   let y = 0;
   const posizioni = new Map();
   const misura = (canto, k) => {
-    const righe = righeCanto(doc, canto, k);
+    const righe = righeCanto(doc, canto, k, soloTesto);
     while (righe.length && righe[righe.length - 1].h <= PDF.spazioBlocco * k && !righe[righe.length - 1].unita) righe.pop();
     return { righe, totale: righe.reduce((s, r) => s + r.h, 0) };
   };
@@ -198,7 +207,54 @@ async function immagineCopertina() {
   return new Promise(ok => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
 }
 
-/** Crea e scarica il PDF. canti: in ordine; titolo: nome della scaletta (o vuoto per tutti i canti). */
+/** Indice compatto: tre colonne (per tutti i canti sta in una pagina), una sola per le scalette corte. */
+function schemaIndice(quanti) {
+  const colonne = quanti > 25 ? 3 : 1;
+  const altoIndice = PDF.H - PDF.su - PDF.giu - 26;
+  const passo = Math.max(9.5, Math.min(14, altoIndice / Math.ceil(quanti / colonne)));
+  const righePerColonna = Math.floor(altoIndice / passo);
+  const perPaginaIndice = colonne * righePerColonna;
+  return { colonne, passo, righePerColonna, perPaginaIndice, pagineIndice: Math.max(1, Math.ceil(quanti / perPaginaIndice)) };
+}
+
+/** Chiede quale PDF: con gli accordi o solo il testo, ognuno con le sue pagine. Risponde "accordi", "testo" o null. */
+function sceltaVersione(pagineAccordi, pagineTesto) {
+  return new Promise(risolvi => {
+    const d = $("finestra");
+    let chiusa = false;
+    const chiudi = risposta => {
+      if (chiusa) return;
+      chiusa = true;
+      if (d.open) d.close();
+      risolvi(risposta);
+    };
+    const voce = (valore, titolo, spiega, pagine) => {
+      const b = el("button", "scelta-pdf");
+      b.type = "button";
+      b.append(el("b", null, titolo), el("span", null, spiega), el("small", null, `${pagine} pagine`));
+      b.onclick = () => chiudi(valore);
+      return b;
+    };
+    const annulla = el("button", null, "Annulla");
+    annulla.type = "button";
+    annulla.onclick = () => chiudi(null);
+    const comandi = el("div", "editor-comandi");
+    comandi.append(annulla);
+    const voci = el("div", "scelte-pdf");
+    voci.append(
+      voce("accordi", "🎸 Con accordi", "accordi, melodia e tonalità: per chi suona", pagineAccordi),
+      voce("testo", "📝 Solo testo", "solo le parole: per chi canta, meno pagine da stampare", pagineTesto));
+    const box = el("div");
+    box.append(el("h3", null, "Quale PDF?"), voci, comandi);
+    d.replaceChildren(box);
+    d.oncancel = e => { e.preventDefault(); chiudi(null); };  // tasto Esc
+    d.onclose = () => chiudi(null);
+    d.showModal();
+  });
+}
+
+/** Crea e scarica il PDF. canti: in ordine; titolo: nome della scaletta (o vuoto per tutti i canti).
+    Prima si sceglie la versione: con gli accordi o solo testo. */
 async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
   if (!canti.length) { avviso("Nessun canto da mettere nel PDF."); return; }
   avviso(`Preparo il PDF con ${canti.length} ${canti.length === 1 ? "canto" : "canti"}…`);
@@ -211,16 +267,17 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a5", compress: true });
   const oggi = new Date().toLocaleDateString("it-IT");
+  const preghieraInizio = PREGHIERE.find(p => p.meta.preghiera === "inizio");
+  const preghieraFine = PREGHIERE.find(p => p.meta.preghiera === "fine");
+  const { colonne, passo, righePerColonna, perPaginaIndice, pagineIndice } = schemaIndice(canti.length);
 
-  // 1. impaginazione dei canti (serve prima, per scrivere nell'indice i numeri di pagina)
-  const { pagine, posizioni } = impagina(doc, canti);
-  // indice compatto: tre colonne (per tutti i canti sta in una pagina), una sola per le scalette corte
-  const colonne = canti.length > 25 ? 3 : 1;
-  const altoIndice = PDF.H - PDF.su - PDF.giu - 26;
-  const passo = Math.max(9.5, Math.min(14, altoIndice / Math.ceil(canti.length / colonne)));
-  const righePerColonna = Math.floor(altoIndice / passo);
-  const perPaginaIndice = colonne * righePerColonna;
-  const pagineIndice = Math.max(1, Math.ceil(canti.length / perPaginaIndice));
+  // 1. impaginazione dei canti nelle due versioni (serve prima: per contare le pagine e per i numeri dell'indice)
+  const versioni = { accordi: impagina(doc, canti), testo: impagina(doc, canti, true) };
+  const totale = v => 2 + pagineIndice + v.pagine.length + (preghieraFine ? 1 : 0);
+  const scelta = await sceltaVersione(totale(versioni.accordi), totale(versioni.testo));
+  if (!scelta) return;
+  const soloTesto = scelta === "testo";
+  const { pagine, posizioni } = versioni[scelta];
   const INDICE = 3;  // copertina, preghiera, indice
   const primaCanti = INDICE + pagineIndice;
   const piede = numero => {
@@ -250,7 +307,7 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
     doc.text(pulisci(sottotitolo), PDF.L / 2, 450, { align: "center", maxWidth: PDF.larghezza });
   }
   doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...PDF.grigio);
-  doc.text(`${canti.length} ${canti.length === 1 ? "canto" : "canti"}`, PDF.L / 2, PDF.H - 30, { align: "center" });
+  doc.text(`${canti.length} ${canti.length === 1 ? "canto" : "canti"}${soloTesto ? " · solo testo" : ""}`, PDF.L / 2, PDF.H - 30, { align: "center" });
 
   // 3. preghiere
   const preghiera = (p, numero) => {
@@ -269,8 +326,6 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
     }
     piede(numero);
   };
-  const preghieraInizio = PREGHIERE.find(p => p.meta.preghiera === "inizio");
-  const preghieraFine = PREGHIERE.find(p => p.meta.preghiera === "fine");
   if (preghieraInizio) preghiera(preghieraInizio, 2);
   else { doc.addPage(); piede(2); }
 
@@ -323,7 +378,7 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
   doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); doc.setTextColor(...PDF.grigio);
   doc.text(`Scaricato il ${oggi}`, PDF.L - PDF.dx, PDF.H - 34, { align: "right" });
 
-  const nomeFile = ("Chi canta prega due volte" + (titolo ? " - " + titolo : "")).replace(/[\\/:*?"<>|]/g, "") + ".pdf";
+  const nomeFile = ("Chi canta prega due volte" + (titolo ? " - " + titolo : "") + (soloTesto ? " (solo testo)" : "")).replace(/[\\/:*?"<>|]/g, "") + ".pdf";
   doc.save(nomeFile);
 }
 
