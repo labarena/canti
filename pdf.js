@@ -217,44 +217,88 @@ function schemaIndice(quanti) {
   return { colonne, passo, righePerColonna, perPaginaIndice, pagineIndice: Math.max(1, Math.ceil(quanti / perPaginaIndice)) };
 }
 
-/** Chiede quale PDF: con gli accordi o solo il testo, ognuno con le sue pagine. Risponde "accordi", "testo" o null. */
-function sceltaVersione(pagineAccordi, pagineTesto) {
+/* le scelte dell'ultimo PDF restano per il prossimo (su questo dispositivo) */
+const SCELTE_PDF = "canti-pdf-scelte";
+function scelteSalvate() {
+  const base = { versione: "accordi", copertina: true, preghiere: true };
+  try { return { ...base, ...JSON.parse(localStorage.getItem(SCELTE_PDF) || "{}") }; } catch { return base; }
+}
+
+/** Chiede come fare il PDF: versione (con accordi o solo testo), copertina sì/no, preghiere allo Spirito sì/no.
+    pagine(scelte) dice quante pagine verrebbero. Risponde le scelte, o null se si annulla. */
+function sceltaPDF(pagine, conPreghiere) {
   return new Promise(risolvi => {
     const d = $("finestra");
+    const scelte = scelteSalvate();
+    if (!conPreghiere) scelte.preghiere = false;
     let chiusa = false;
     const chiudi = risposta => {
       if (chiusa) return;
       chiusa = true;
       if (d.open) d.close();
+      if (risposta) try { localStorage.setItem(SCELTE_PDF, JSON.stringify(risposta)); } catch { /* resta per questa volta */ }
       risolvi(risposta);
     };
-    const voce = (valore, titolo, spiega, pagine) => {
+    // le due versioni: si tocca quella che si vuole (resta evidenziata)
+    const voci = el("div", "scelte-pdf");
+    voci.setAttribute("role", "radiogroup");
+    voci.setAttribute("aria-label", "Versione");
+    const contatori = {};
+    const voce = (valore, titolo, spiega) => {
       const b = el("button", "scelta-pdf");
       b.type = "button";
-      b.append(el("b", null, titolo), el("span", null, spiega), el("small", null, `${pagine} pagine`));
-      b.onclick = () => chiudi(valore);
+      b.setAttribute("role", "radio");
+      b.dataset.valore = valore;
+      contatori[valore] = el("small");
+      b.append(el("b", null, titolo), el("span", null, spiega), contatori[valore]);
+      b.onclick = () => { scelte.versione = valore; aggiorna(); };
       return b;
     };
+    voci.append(
+      voce("accordi", "🎸 Con accordi", "accordi, melodia e tonalità: per chi suona"),
+      voce("testo", "📝 Solo testo", "solo le parole: per chi canta"));
+    // le parti in più
+    const spunta = (chiave, testo) => {
+      const etichetta = el("label", "spunta-pdf");
+      const casella = el("input");
+      casella.type = "checkbox";
+      casella.checked = scelte[chiave];
+      casella.onchange = () => { scelte[chiave] = casella.checked; aggiorna(); };
+      etichetta.append(casella, document.createTextNode(" " + testo));
+      return etichetta;
+    };
+    const parti = el("div", "parti-pdf");
+    parti.append(spunta("copertina", "Copertina"));
+    if (conPreghiere) parti.append(spunta("preghiere", "Preghiere allo Spirito Santo (all'inizio e in fondo)"));
+
+    const aggiorna = () => {
+      for (const b of voci.children) b.setAttribute("aria-checked", b.dataset.valore === scelte.versione);
+      for (const v of ["accordi", "testo"]) {
+        const n = pagine({ ...scelte, versione: v });
+        contatori[v].textContent = `${n} ${n === 1 ? "pagina" : "pagine"}`;
+      }
+    };
+    aggiorna();
+
+    const scarica = el("button", "primario", "Scarica il PDF");
     const annulla = el("button", null, "Annulla");
-    annulla.type = "button";
+    scarica.type = annulla.type = "button";
+    scarica.onclick = () => chiudi({ ...scelte });
     annulla.onclick = () => chiudi(null);
     const comandi = el("div", "editor-comandi");
-    comandi.append(annulla);
-    const voci = el("div", "scelte-pdf");
-    voci.append(
-      voce("accordi", "🎸 Con accordi", "accordi, melodia e tonalità: per chi suona", pagineAccordi),
-      voce("testo", "📝 Solo testo", "solo le parole: per chi canta, meno pagine da stampare", pagineTesto));
+    comandi.append(scarica, annulla);
     const box = el("div");
-    box.append(el("h3", null, "Quale PDF?"), voci, comandi);
+    box.append(el("h3", null, "Quale PDF?"), voci, parti, comandi);
     d.replaceChildren(box);
     d.oncancel = e => { e.preventDefault(); chiudi(null); };  // tasto Esc
     d.onclose = () => chiudi(null);
     d.showModal();
+    scarica.focus();
   });
 }
 
 /** Crea e scarica il PDF. canti: in ordine; titolo: nome della scaletta (o vuoto per tutti i canti).
-    Prima si sceglie la versione: con gli accordi o solo testo. */
+    Prima si sceglie: con gli accordi o solo testo, con o senza copertina, con o senza le preghiere allo Spirito. */
 async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
   if (!canti.length) { avviso("Nessun canto da mettere nel PDF."); return; }
   avviso(`Preparo il PDF con ${canti.length} ${canti.length === 1 ? "canto" : "canti"}…`);
@@ -273,13 +317,22 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
 
   // 1. impaginazione dei canti nelle due versioni (serve prima: per contare le pagine e per i numeri dell'indice)
   const versioni = { accordi: impagina(doc, canti), testo: impagina(doc, canti, true) };
-  const totale = v => 2 + pagineIndice + v.pagine.length + (preghieraFine ? 1 : 0);
-  const scelta = await sceltaVersione(totale(versioni.accordi), totale(versioni.testo));
-  if (!scelta) return;
-  const soloTesto = scelta === "testo";
-  const { pagine, posizioni } = versioni[scelta];
-  const INDICE = 3;  // copertina, preghiera, indice
+  const conPreghiere = !!(preghieraInizio || preghieraFine);
+  // pagine prima dell'indice e in fondo, secondo le scelte
+  const schema = s => ({
+    prima: (s.copertina ? 1 : 0) + (s.preghiere && preghieraInizio ? 1 : 0),
+    fine: s.preghiere && preghieraFine ? 1 : 0,
+  });
+  const totale = s => { const { prima, fine } = schema(s); return prima + pagineIndice + versioni[s.versione].pagine.length + fine; };
+  const scelte = await sceltaPDF(totale, conPreghiere);
+  if (!scelte) return;
+  const soloTesto = scelte.versione === "testo";
+  const { pagine, posizioni } = versioni[scelte.versione];
+  const INDICE = schema(scelte).prima + 1;  // numero della prima pagina dell'indice
   const primaCanti = INDICE + pagineIndice;
+  // la prima pagina c'è già nel documento: si usa quella, poi se ne aggiungono
+  let paginaVuota = true;
+  const nuovaPagina = () => { if (paginaVuota) paginaVuota = false; else doc.addPage(); };
   const piede = numero => {
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...PDF.rosso);
     // "indice": grande da toccare, porta alla prima pagina dell'indice
@@ -289,29 +342,32 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
     doc.text(String(numero), numero % 2 ? PDF.L - PDF.dx : PDF.sx, PDF.H - 20, { align: numero % 2 ? "right" : "left" });
   };
 
-  // 2. copertina
-  doc.setFont("times", "bold"); doc.setFontSize(24); doc.setTextColor(0, 0, 0);
-  doc.text("Chi canta prega due volte", PDF.L / 2, 92, { align: "center" });
-  doc.setFont("times", "italic"); doc.setFontSize(12); doc.setTextColor(...PDF.grigio);
-  doc.text("Sant'Agostino", PDF.L / 2, 112, { align: "center" });
-  try {
-    const lato = 250;
-    doc.addImage(await immagineCopertina(), "JPEG", (PDF.L - lato) / 2, 140, lato, lato * 869 / 900);
-  } catch { /* senza immagine resta il titolo */ }
-  if (titolo) {
-    doc.setFont("times", "bold"); doc.setFontSize(15); doc.setTextColor(...PDF.rosso);
-    doc.text(pulisci(titolo), PDF.L / 2, 430, { align: "center", maxWidth: PDF.larghezza });
+  // 2. copertina (se scelta)
+  if (scelte.copertina) {
+    nuovaPagina();
+    doc.setFont("times", "bold"); doc.setFontSize(24); doc.setTextColor(0, 0, 0);
+    doc.text("Chi canta prega due volte", PDF.L / 2, 92, { align: "center" });
+    doc.setFont("times", "italic"); doc.setFontSize(12); doc.setTextColor(...PDF.grigio);
+    doc.text("Sant'Agostino", PDF.L / 2, 112, { align: "center" });
+    try {
+      const lato = 250;
+      doc.addImage(await immagineCopertina(), "JPEG", (PDF.L - lato) / 2, 140, lato, lato * 869 / 900);
+    } catch { /* senza immagine resta il titolo */ }
+    if (titolo) {
+      doc.setFont("times", "bold"); doc.setFontSize(15); doc.setTextColor(...PDF.rosso);
+      doc.text(pulisci(titolo), PDF.L / 2, 430, { align: "center", maxWidth: PDF.larghezza });
+    }
+    if (sottotitolo) {
+      doc.setFont("times", "italic"); doc.setFontSize(11); doc.setTextColor(...PDF.grigio);
+      doc.text(pulisci(sottotitolo), PDF.L / 2, 450, { align: "center", maxWidth: PDF.larghezza });
+    }
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...PDF.grigio);
+    doc.text(`${canti.length} ${canti.length === 1 ? "canto" : "canti"}${soloTesto ? " · solo testo" : ""}`, PDF.L / 2, PDF.H - 30, { align: "center" });
   }
-  if (sottotitolo) {
-    doc.setFont("times", "italic"); doc.setFontSize(11); doc.setTextColor(...PDF.grigio);
-    doc.text(pulisci(sottotitolo), PDF.L / 2, 450, { align: "center", maxWidth: PDF.larghezza });
-  }
-  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...PDF.grigio);
-  doc.text(`${canti.length} ${canti.length === 1 ? "canto" : "canti"}${soloTesto ? " · solo testo" : ""}`, PDF.L / 2, PDF.H - 30, { align: "center" });
 
-  // 3. preghiere
+  // 3. preghiere (se scelte)
   const preghiera = (p, numero) => {
-    doc.addPage();
+    nuovaPagina();
     let y = 110;
     doc.setFont("times", "bold"); doc.setFontSize(16); doc.setTextColor(0, 0, 0);
     doc.text(pulisci(p.meta.title), PDF.L / 2, y, { align: "center" });
@@ -326,8 +382,7 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
     }
     piede(numero);
   };
-  if (preghieraInizio) preghiera(preghieraInizio, 2);
-  else { doc.addPage(); piede(2); }
+  if (scelte.preghiere && preghieraInizio) preghiera(preghieraInizio, INDICE - 1);
 
   // 4. indice: ogni voce porta al suo canto; in ordine dall'alto in basso, colonna per colonna
   const numerato = !!titolo;  // per una scaletta: l'ordine della scaletta, numerato
@@ -335,10 +390,20 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
   const largaColonna = (PDF.larghezza - spazioColonne * (colonne - 1)) / colonne;
   const corpo = colonne > 1 ? Math.min(8.5, passo * .75) : 11;
   for (let k = 0; k < pagineIndice; k++) {
-    doc.addPage();
+    nuovaPagina();
     if (k === 0) {
+      // senza copertina, il nome della scaletta va in cima all'indice
+      const intestazione = !scelte.copertina && titolo ? titolo : "Indice";
       doc.setFont("times", "bold"); doc.setFontSize(14); doc.setTextColor(0, 0, 0);
-      doc.text("Indice", PDF.sx, PDF.su + 10);
+      let testa = pulisci(intestazione);
+      while (testa.length > 3 && doc.getTextWidth(testa) > PDF.larghezza) testa = testa.slice(0, -2).trimEnd() + "…";
+      doc.text(testa, PDF.sx, PDF.su + 10);
+      if (!scelte.copertina && titolo && sottotitolo) {
+        const x = PDF.sx + doc.getTextWidth(testa) + 8;
+        doc.setFont("times", "italic"); doc.setFontSize(10); doc.setTextColor(...PDF.grigio);
+        const resto = PDF.L - PDF.dx - x;
+        if (resto > 40) doc.text(doc.splitTextToSize(pulisci(sottotitolo), resto)[0], x, PDF.su + 10);
+      }
     }
     canti.slice(k * perPaginaIndice, (k + 1) * perPaginaIndice).forEach((c, i) => {
       const pos = posizioni.get(c.id);
@@ -364,14 +429,14 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
 
   // 5. canti, con il segnalibro di ognuno (pannello laterale del lettore PDF)
   pagine.forEach((operazioni, i) => {
-    doc.addPage();
+    nuovaPagina();
     for (const f of operazioni) f(doc);
     piede(primaCanti + i);
   });
   for (const c of canti) doc.outline.add(null, pulisci(c.meta.title), { pageNumber: primaCanti + posizioni.get(c.id).pagina });
 
   // 6. preghiera finale
-  if (preghieraFine) preghiera(preghieraFine, primaCanti + pagine.length);
+  if (scelte.preghiere && preghieraFine) preghiera(preghieraFine, primaCanti + pagine.length);
 
   // in fondo all'ultima pagina, a destra: quando è stato scaricato
   doc.setPage(doc.getNumberOfPages());

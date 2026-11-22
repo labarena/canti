@@ -300,6 +300,11 @@ dialog#finestra button.scelta-pdf {
   display: grid; justify-items: start; gap: 2px; width: 100%; text-align: left; padding: 12px 14px;
   border: 1px solid var(--linea); border-radius: 10px; background: var(--pannello); color: var(--inchiostro); font: inherit;
 }
+dialog#finestra button.scelta-pdf[aria-checked="true"] { border: 2px solid var(--rubrica); background: var(--rit-fondo); padding: 11px 13px; }
+dialog#finestra button.scelta-pdf[aria-checked="true"] b::after { content: "  ✓"; color: var(--rubrica); }
+.parti-pdf { margin-top: 12px; }
+dialog#finestra label.spunta-pdf { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 15px; color: var(--inchiostro); cursor: pointer; }
+dialog#finestra label.spunta-pdf input { display: inline-block; flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--rubrica); }
 .scelta-pdf b { font-size: 16px; }
 .scelta-pdf span { font-size: 13px; color: var(--tenue); }
 .scelta-pdf small { font-size: 13px; color: var(--rubrica); font-weight: 600; }
