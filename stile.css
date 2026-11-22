@@ -305,6 +305,10 @@ dialog#finestra button.scelta-pdf[aria-checked="true"] b::after { content: "  âœ
 .parti-pdf { margin-top: 12px; }
 dialog#finestra label.spunta-pdf { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 15px; color: var(--inchiostro); cursor: pointer; }
 dialog#finestra label.spunta-pdf input { display: inline-block; flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--rubrica); }
+.locandina-pdf { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 8px 28px; }
+.locandina-pdf button { min-height: 34px; padding: 4px 12px; font-size: 14px; }
+.miniatura-pdf { height: 56px; width: auto; max-width: 80px; object-fit: contain; border: 1px solid var(--linea); border-radius: 4px; background: #fff; }
+.nota-locandina { flex-basis: 100%; color: var(--tenue); font-size: 12.5px; overflow-wrap: anywhere; }
 .testa-canti-pdf { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; }
 .conta-canti-pdf { flex: 1; font-weight: 600; font-size: 15px; }
 .testa-canti-pdf button { min-height: 30px; padding: 3px 10px; font-size: 13px; }

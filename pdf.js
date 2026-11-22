@@ -207,6 +207,23 @@ async function immagineCopertina() {
   return new Promise(ok => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
 }
 
+/** Legge un'immagine scelta dall'utente e la rimpicciolisce (lato lungo al massimo 1600 px, JPEG):
+    il PDF resta leggero e la foto non lascia il dispositivo. Risponde { dati, w, h }. */
+async function leggiLocandina(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
+    const f = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.round(img.naturalWidth * f), h = Math.round(img.naturalHeight * f);
+    const tela = document.createElement("canvas");
+    tela.width = w; tela.height = h;
+    const cx = tela.getContext("2d");
+    cx.fillStyle = "#fff"; cx.fillRect(0, 0, w, h);  // i PNG trasparenti hanno lo sfondo bianco
+    cx.drawImage(img, 0, 0, w, h);
+    return { dati: tela.toDataURL("image/jpeg", .88), w, h };
+  } finally { URL.revokeObjectURL(url); }
+}
+
 /** Indice compatto: tre colonne (per tutti i canti sta in una pagina), una sola per le scalette corte. */
 function schemaIndice(quanti) {
   const colonne = quanti > 25 ? 3 : 1;
@@ -274,6 +291,28 @@ function sceltaPDF(pagine, conPreghiere, canti) {
     };
     const parti = el("div", "parti-pdf");
     parti.append(spunta("copertina", "Copertina"));
+    // locandina: al posto della copertina di serie; l'immagine resta sul dispositivo, non si ricorda
+    const locandina = el("div", "locandina-pdf");
+    const fileLocandina = el("input");
+    fileLocandina.type = "file"; fileLocandina.accept = "image/*"; fileLocandina.hidden = true;
+    const scegli = el("button", null);
+    const togli = el("button", null, "Togli");
+    scegli.type = togli.type = "button";
+    const miniatura = el("img", "miniatura-pdf");
+    miniatura.alt = "Anteprima della locandina";
+    const nota = el("small", "nota-locandina");
+    scegli.onclick = () => fileLocandina.click();
+    togli.onclick = () => { scelte.locandina = null; nota.textContent = ""; aggiorna(); };
+    fileLocandina.onchange = async () => {
+      const f = fileLocandina.files[0];
+      fileLocandina.value = "";
+      if (!f) return;
+      try { scelte.locandina = await leggiLocandina(f); nota.textContent = f.name; }
+      catch { nota.textContent = "Non riesco a leggere questa immagine: prova con una foto JPG o PNG."; }
+      aggiorna();
+    };
+    locandina.append(scegli, togli, fileLocandina, miniatura, nota);
+    parti.append(locandina);
     if (conPreghiere) parti.append(spunta("preghiere", "Preghiere allo Spirito Santo (all'inizio e in fondo)"));
 
     // i canti: tutti spuntati, si toglie quello che non serve
@@ -310,6 +349,10 @@ function sceltaPDF(pagine, conPreghiere, canti) {
     let timerConto = null;
     const aggiorna = () => {
       for (const b of voci.children) b.setAttribute("aria-checked", b.dataset.valore === scelte.versione);
+      locandina.hidden = !scelte.copertina;
+      scegli.textContent = scelte.locandina ? "🖼 Cambia locandina…" : "🖼 Aggiungi una locandina…";
+      togli.hidden = miniatura.hidden = !scelte.locandina;
+      if (scelte.locandina) miniatura.src = scelte.locandina.dati;
       quanti.textContent = `Canti: ${scelte.ids.size} di ${canti.length}`;
       scarica.disabled = !scelte.ids.size;
       clearTimeout(timerConto);
@@ -394,7 +437,13 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
   };
 
   // 2. copertina (se scelta)
-  if (scelte.copertina) {
+  if (scelte.copertina && scelte.locandina) {
+    // la locandina occupa la pagina intera, tutta visibile (senza tagliare)
+    nuovaPagina();
+    const { dati, w, h } = scelte.locandina;
+    const f = Math.min(PDF.L / w, PDF.H / h);
+    doc.addImage(dati, "JPEG", (PDF.L - w * f) / 2, (PDF.H - h * f) / 2, w * f, h * f);
+  } else if (scelte.copertina) {
     nuovaPagina();
     doc.setFont("times", "bold"); doc.setFontSize(24); doc.setTextColor(0, 0, 0);
     doc.text("Chi canta prega due volte", PDF.L / 2, 92, { align: "center" });
