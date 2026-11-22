@@ -305,6 +305,19 @@ dialog#finestra button.scelta-pdf[aria-checked="true"] b::after { content: "  âœ
 .parti-pdf { margin-top: 12px; }
 dialog#finestra label.spunta-pdf { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 15px; color: var(--inchiostro); cursor: pointer; }
 dialog#finestra label.spunta-pdf input { display: inline-block; flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--rubrica); }
+.testa-canti-pdf { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; }
+.conta-canti-pdf { flex: 1; font-weight: 600; font-size: 15px; }
+.testa-canti-pdf button { min-height: 30px; padding: 3px 10px; font-size: 13px; }
+.lista-canti-pdf {
+  max-height: min(38vh, 320px); overflow-y: auto; padding: 4px 10px;
+  border: 1px solid var(--linea); border-radius: 10px; background: var(--carta);
+}
+.lista-canti-pdf label.spunta-pdf { font-size: 14px; margin: 4px 0; }
+dialog#finestra .comandi-pdf {
+  position: sticky; bottom: -20px; margin: 14px -20px -20px; padding: 12px 20px 16px;
+  background: var(--carta); border-top: 1px solid var(--linea);
+}
+dialog#finestra .comandi-pdf button:disabled { opacity: .45; cursor: not-allowed; }
 .scelta-pdf b { font-size: 16px; }
 .scelta-pdf span { font-size: 13px; color: var(--tenue); }
 .scelta-pdf small { font-size: 13px; color: var(--rubrica); font-weight: 600; }

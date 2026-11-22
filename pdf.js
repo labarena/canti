@@ -224,19 +224,24 @@ function scelteSalvate() {
   try { return { ...base, ...JSON.parse(localStorage.getItem(SCELTE_PDF) || "{}") }; } catch { return base; }
 }
 
-/** Chiede come fare il PDF: versione (con accordi o solo testo), copertina sì/no, preghiere allo Spirito sì/no.
-    pagine(scelte) dice quante pagine verrebbero. Risponde le scelte, o null se si annulla. */
-function sceltaPDF(pagine, conPreghiere) {
+/** Chiede come fare il PDF: versione (con accordi o solo testo), copertina sì/no, preghiere allo Spirito sì/no
+    e quali canti (tutti spuntati all'inizio). pagine(scelte) dice quante pagine verrebbero.
+    Risponde le scelte ({ versione, copertina, preghiere, ids }), o null se si annulla. */
+function sceltaPDF(pagine, conPreghiere, canti) {
   return new Promise(risolvi => {
     const d = $("finestra");
     const scelte = scelteSalvate();
     if (!conPreghiere) scelte.preghiere = false;
+    scelte.ids = new Set(canti.map(c => c.id));  // i canti non si ricordano: ogni PDF parte da tutti
     let chiusa = false;
     const chiudi = risposta => {
       if (chiusa) return;
       chiusa = true;
       if (d.open) d.close();
-      if (risposta) try { localStorage.setItem(SCELTE_PDF, JSON.stringify(risposta)); } catch { /* resta per questa volta */ }
+      if (risposta) try {
+        const { versione, copertina, preghiere } = risposta;
+        localStorage.setItem(SCELTE_PDF, JSON.stringify({ versione, copertina, preghiere }));
+      } catch { /* resta per questa volta */ }
       risolvi(risposta);
     };
     // le due versioni: si tocca quella che si vuole (resta evidenziata)
@@ -271,24 +276,59 @@ function sceltaPDF(pagine, conPreghiere) {
     parti.append(spunta("copertina", "Copertina"));
     if (conPreghiere) parti.append(spunta("preghiere", "Preghiere allo Spirito Santo (all'inizio e in fondo)"));
 
-    const aggiorna = () => {
-      for (const b of voci.children) b.setAttribute("aria-checked", b.dataset.valore === scelte.versione);
-      for (const v of ["accordi", "testo"]) {
-        const n = pagine({ ...scelte, versione: v });
-        contatori[v].textContent = `${n} ${n === 1 ? "pagina" : "pagine"}`;
-      }
+    // i canti: tutti spuntati, si toglie quello che non serve
+    const caselleCanti = [];
+    const quanti = el("span", "conta-canti-pdf");
+    const tutti = el("button", null, "Tutti"), nessuno = el("button", null, "Nessuno");
+    tutti.type = nessuno.type = "button";
+    const segnaTutti = acceso => {
+      for (const c of caselleCanti) c.checked = acceso;
+      scelte.ids = new Set(acceso ? canti.map(c => c.id) : []);
+      aggiorna();
     };
-    aggiorna();
+    tutti.onclick = () => segnaTutti(true);
+    nessuno.onclick = () => segnaTutti(false);
+    const testaCanti = el("div", "testa-canti-pdf");
+    testaCanti.append(quanti, tutti, nessuno);
+    const lista = el("div", "lista-canti-pdf");
+    canti.forEach((c, i) => {
+      const etichetta = el("label", "spunta-pdf");
+      const casella = el("input");
+      casella.type = "checkbox";
+      casella.checked = true;
+      casella.onchange = () => { if (casella.checked) scelte.ids.add(c.id); else scelte.ids.delete(c.id); aggiorna(); };
+      caselleCanti.push(casella);
+      etichetta.append(casella, document.createTextNode(` ${i + 1}. ${c.meta.title}`));
+      lista.append(etichetta);
+    });
 
     const scarica = el("button", "primario", "Scarica il PDF");
     const annulla = el("button", null, "Annulla");
     scarica.type = annulla.type = "button";
+
+    // le pagine si ricontano un attimo dopo l'ultimo tocco (con tutti i canti ci vuole un momento)
+    let timerConto = null;
+    const aggiorna = () => {
+      for (const b of voci.children) b.setAttribute("aria-checked", b.dataset.valore === scelte.versione);
+      quanti.textContent = `Canti: ${scelte.ids.size} di ${canti.length}`;
+      scarica.disabled = !scelte.ids.size;
+      clearTimeout(timerConto);
+      if (!scelte.ids.size) { for (const v in contatori) contatori[v].textContent = "nessun canto scelto"; return; }
+      timerConto = setTimeout(() => {
+        for (const v of ["accordi", "testo"]) {
+          const n = pagine({ ...scelte, versione: v });
+          contatori[v].textContent = `${n} ${n === 1 ? "pagina" : "pagine"}`;
+        }
+      }, 120);
+    };
+    aggiorna();
+
     scarica.onclick = () => chiudi({ ...scelte });
     annulla.onclick = () => chiudi(null);
-    const comandi = el("div", "editor-comandi");
+    const comandi = el("div", "editor-comandi comandi-pdf");  // restano in fondo alla finestra anche scorrendo
     comandi.append(scarica, annulla);
     const box = el("div");
-    box.append(el("h3", null, "Quale PDF?"), voci, parti, comandi);
+    box.append(el("h3", null, "Quale PDF?"), voci, parti, testaCanti, lista, comandi);
     d.replaceChildren(box);
     d.oncancel = e => { e.preventDefault(); chiudi(null); };  // tasto Esc
     d.onclose = () => chiudi(null);
@@ -313,21 +353,32 @@ async function scaricaPDF(canti, titolo = "", sottotitolo = "") {
   const oggi = new Date().toLocaleDateString("it-IT");
   const preghieraInizio = PREGHIERE.find(p => p.meta.preghiera === "inizio");
   const preghieraFine = PREGHIERE.find(p => p.meta.preghiera === "fine");
-  const { colonne, passo, righePerColonna, perPaginaIndice, pagineIndice } = schemaIndice(canti.length);
-
-  // 1. impaginazione dei canti nelle due versioni (serve prima: per contare le pagine e per i numeri dell'indice)
-  const versioni = { accordi: impagina(doc, canti), testo: impagina(doc, canti, true) };
   const conPreghiere = !!(preghieraInizio || preghieraFine);
   // pagine prima dell'indice e in fondo, secondo le scelte
   const schema = s => ({
     prima: (s.copertina ? 1 : 0) + (s.preghiere && preghieraInizio ? 1 : 0),
     fine: s.preghiere && preghieraFine ? 1 : 0,
   });
-  const totale = s => { const { prima, fine } = schema(s); return prima + pagineIndice + versioni[s.versione].pagine.length + fine; };
-  const scelte = await sceltaPDF(totale, conPreghiere);
+  // quante pagine verrebbero: si impaginano i canti scelti (con la memoria, per non rifare lo stesso conto)
+  const contati = new Map();
+  const pagineCanti = (scelti, versione) => {
+    const chiave = versione + "|" + scelti.map(c => c.id).join(",");
+    if (!contati.has(chiave)) contati.set(chiave, impagina(doc, scelti, versione === "testo").pagine.length);
+    return contati.get(chiave);
+  };
+  const totale = s => {
+    const scelti = canti.filter(c => s.ids.has(c.id));
+    const { prima, fine } = schema(s);
+    return prima + schemaIndice(scelti.length).pagineIndice + pagineCanti(scelti, s.versione) + fine;
+  };
+  const scelte = await sceltaPDF(totale, conPreghiere, canti);
   if (!scelte) return;
+  canti = canti.filter(c => scelte.ids.has(c.id));  // da qui in poi: solo i canti spuntati, nel loro ordine
   const soloTesto = scelte.versione === "testo";
-  const { pagine, posizioni } = versioni[scelte.versione];
+
+  // 1. impaginazione dei canti (serve prima, per scrivere nell'indice i numeri di pagina)
+  const { pagine, posizioni } = impagina(doc, canti, soloTesto);
+  const { colonne, passo, righePerColonna, perPaginaIndice, pagineIndice } = schemaIndice(canti.length);
   const INDICE = schema(scelte).prima + 1;  // numero della prima pagina dell'indice
   const primaCanti = INDICE + pagineIndice;
   // la prima pagina c'è già nel documento: si usa quella, poi se ne aggiungono
